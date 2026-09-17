@@ -1,0 +1,1365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Ctrl-Alt-Defeat // DevSecOps Observability Grid 6x6</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root {
+      --board-size: min(92vw, calc(100dvh - 90px), 430px);
+    }
+
+    body {
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+      overscroll-behavior: none;
+      background-color: #f1f5f9;
+    }
+
+    .game-shell {
+      width: 100%;
+      max-width: var(--board-size);
+    }
+
+    .cluster-grid {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      grid-template-rows: repeat(6, 1fr);
+      width: var(--board-size);
+      height: var(--board-size);
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+      border: 1.5px solid #cbd5e1;
+      background-color: #cbd5e1;
+      gap: 1px;
+    }
+
+    .node-cell {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      user-select: none;
+      -webkit-user-select: none;
+      cursor: pointer;
+      transition: background-color 0.15s ease;
+      overflow: hidden;
+    }
+
+    .node-slot-light {
+      background-color: #ffffff;
+    }
+
+    .node-slot-dark {
+      background-color: #e2e8f0;
+    }
+
+    .node-last-route {
+      box-shadow: inset 0 0 0 2px rgba(14, 165, 233, 0.6);
+      background-color: #e0f2fe !important;
+    }
+
+    .node-selected {
+      box-shadow: inset 0 0 0 2.5px #0284c7;
+      background-color: #bae6fd !important;
+    }
+
+    .node-compromised {
+      animation: alert-pulse 1s infinite alternate;
+      background-color: #fee2e2 !important;
+    }
+
+    @keyframes alert-pulse {
+      0% { box-shadow: inset 0 0 0 2px #ef4444; }
+      100% { box-shadow: inset 0 0 0 3.5px #dc2626; }
+    }
+
+    .rack-tag {
+      position: absolute;
+      font-size: 8px;
+      font-weight: 800;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      color: #94a3b8;
+      pointer-events: none;
+      line-height: 1;
+      z-index: 5;
+    }
+
+    .service-chip {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      height: 100%;
+      padding: 3px 1px;
+      pointer-events: none;
+      position: relative;
+      z-index: 2;
+    }
+
+    .service-icon {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 62%;
+      height: 62%;
+      max-width: 36px;
+      max-height: 36px;
+    }
+
+    .service-icon svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+      filter: drop-shadow(0 1px 2px rgba(0,0,0,0.1));
+    }
+
+    .service-label {
+      font-size: clamp(7px, 1.8vw, 8.5px);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      line-height: 1;
+      margin-top: 1.5px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 92%;
+    }
+
+    .chip-p1 .service-label {
+      color: #0284c7;
+    }
+
+    .chip-p2 .service-label {
+      color: #e11d48;
+    }
+
+    .route-target-dot {
+      position: absolute;
+      width: 24%;
+      height: 24%;
+      max-width: 14px;
+      max-height: 14px;
+      border-radius: 9999px;
+      background-color: rgba(14, 165, 233, 0.75);
+      box-shadow: 0 0 6px rgba(14, 165, 233, 0.5);
+      pointer-events: none;
+      z-index: 10;
+      animation: dot-pulse 1.2s infinite ease-in-out;
+    }
+
+    @keyframes dot-pulse {
+      0%, 100% { transform: scale(0.9); opacity: 0.7; }
+      50% { transform: scale(1.15); opacity: 1; }
+    }
+
+    .quarantine-target-box {
+      position: absolute;
+      inset: 3px;
+      border: 2px dashed #f43f5e;
+      border-radius: 8px;
+      background-color: rgba(244, 63, 94, 0.15);
+      pointer-events: none;
+      z-index: 10;
+      animation: target-pulse 1s infinite alternate;
+    }
+
+    @keyframes target-pulse {
+      0% { transform: scale(0.96); opacity: 0.75; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+
+    .floating-log-toast {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 10px;
+      font-weight: 900;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      white-space: nowrap;
+      pointer-events: none;
+      z-index: 30;
+      text-shadow: 0 1px 3px rgba(255, 255, 255, 0.9), 0 0 8px rgba(0,0,0,0.25);
+      animation: float-telemetry 0.8s forwards ease-out;
+    }
+
+    @keyframes float-telemetry {
+      0% { opacity: 0; transform: translate(-50%, -20%) scale(0.8); }
+      25% { opacity: 1; transform: translate(-50%, -60%) scale(1.05); }
+      100% { opacity: 0; transform: translate(-50%, -130%) scale(0.95); }
+    }
+
+    /* Screen Transitions */
+    .screen-overlay {
+      transition: opacity 0.3s ease, visibility 0.3s ease;
+    }
+    .screen-overlay.screen-hidden {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body class="flex flex-col items-center justify-center w-full min-h-[100dvh] p-2 relative bg-slate-100 text-slate-800 select-none overflow-hidden font-sans">
+
+  <!-- Splash Screen ("Ctrl-Alt-Defeat") -->
+  <div id="splash-screen" class="screen-overlay fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-900 text-slate-100 p-6">
+    <div class="flex flex-col items-center max-w-xs text-center space-y-4">
+      <div class="w-16 h-16 rounded-2xl bg-sky-500/20 border border-sky-400/40 flex items-center justify-center shadow-lg shadow-sky-500/10 text-sky-400">
+        <svg class="w-9 h-9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
+          <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+          <line x1="6" y1="6" x2="6.01" y2="6"></line>
+          <line x1="6" y1="18" x2="6.01" y2="18"></line>
+        </svg>
+      </div>
+      <h1 class="text-2xl font-black tracking-tight font-mono text-white">Ctrl-Alt-Defeat</h1>
+      <p class="text-xs text-slate-400 font-mono">DevSecOps Observability Grid 6x6</p>
+      
+      <div class="w-full bg-slate-800 rounded-full h-2 overflow-hidden border border-slate-700 mt-2">
+        <div id="splash-progress" class="bg-sky-500 h-full w-0 transition-all duration-300 ease-out"></div>
+      </div>
+      <p id="splash-status" class="text-[10px] font-mono text-slate-400 tracking-wider">Mounting virtual topology...</p>
+
+      <button id="btn-splash-skip" class="mt-4 px-4 py-1.5 text-[11px] font-mono font-bold tracking-wide rounded-lg bg-sky-600/30 border border-sky-500/40 text-sky-300 hover:bg-sky-600/50 active:scale-95 transition-all">
+        INITIALIZE NOW ↵
+      </button>
+    </div>
+  </div>
+
+  <!-- Home Screen / Main Menu -->
+  <div id="home-screen" class="screen-overlay screen-hidden fixed inset-0 z-40 flex flex-col items-center justify-center bg-slate-900/95 backdrop-blur-sm text-slate-100 p-6">
+    <div class="flex flex-col items-center w-full max-w-xs text-center space-y-6">
+      <div class="space-y-1">
+        <h2 class="text-2xl font-black tracking-tight font-mono text-white">Ctrl-Alt-Defeat</h2>
+        <p class="text-xs text-sky-400 font-mono">Enterprise NOC Observability Grid</p>
+      </div>
+
+      <div class="flex flex-col w-full space-y-3 font-mono text-xs">
+        <button id="btn-start-game" class="w-full py-3 rounded-xl bg-sky-600 hover:bg-sky-500 active:scale-95 text-white font-bold tracking-wider shadow-lg shadow-sky-600/30 transition-all">
+          ▶ START GAME
+        </button>
+        <button id="btn-game-guide" class="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 border border-slate-700 text-slate-200 font-semibold tracking-wider transition-all">
+          📖 GAME GUIDE
+        </button>
+        <button id="btn-home-sound" class="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 border border-slate-700 text-slate-300 font-semibold tracking-wider flex items-center justify-center gap-2 transition-all">
+          <span id="home-sound-icon">🔊</span>
+          <span>SOUND: <span id="home-sound-label">ON</span></span>
+        </button>
+      </div>
+      <p class="text-[10px] text-slate-500 font-mono">v2.4.0 // High Availability Cluster</p>
+    </div>
+  </div>
+
+  <!-- Game Guide Modal -->
+  <div id="guide-modal" class="screen-overlay screen-hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4">
+    <div class="bg-white text-slate-800 rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-slate-200 flex flex-col max-h-[85vh]">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+        <h3 class="text-sm font-black font-mono tracking-wide text-slate-800 uppercase">DevSecOps Guide</h3>
+        <button id="btn-close-guide" class="text-slate-400 hover:text-slate-600 text-base font-bold p-1">✕</button>
+      </div>
+      <div class="overflow-y-auto py-3 space-y-2.5 text-xs text-slate-600 font-sans pr-1">
+        <div class="p-2 rounded-lg bg-sky-50 border border-sky-100">
+          <b class="text-sky-800 font-mono">K · Root Vault DB:</b> Moves 1 step in any direction. Protect your root database from intrusion!
+        </div>
+        <div class="p-2 rounded-lg bg-slate-50 border border-slate-200">
+          <b class="text-slate-800 font-mono">Q · Root Orchestrator:</b> Moves any distance horizontally, vertically, or diagonally.
+        </div>
+        <div class="p-2 rounded-lg bg-slate-50 border border-slate-200">
+          <b class="text-slate-800 font-mono">R · WAF Gateway:</b> Sweeps straight across rows and columns to quarantine threats.
+        </div>
+        <div class="p-2 rounded-lg bg-slate-50 border border-slate-200">
+          <b class="text-slate-800 font-mono">B · Logic Vector Daemon:</b> Moves along diagonal vectors.
+        </div>
+        <div class="p-2 rounded-lg bg-slate-50 border border-slate-200">
+          <b class="text-slate-800 font-mono">N · 0-Day Infiltrator:</b> Leaps in an L-shape over barriers via unexpected ports.
+        </div>
+        <div class="p-2 rounded-lg bg-slate-50 border border-slate-200">
+          <b class="text-slate-800 font-mono">P · Telemetry Probe:</b> Steps forward 1 node (2 on initial ping). Compiles to Root Orchestrator at the opposite gateway!
+        </div>
+      </div>
+      <button id="btn-guide-ok" class="mt-2 w-full py-2 bg-slate-800 hover:bg-slate-700 active:scale-95 text-white font-mono text-xs font-bold rounded-xl transition-all">
+        ACKNOWLEDGED
+      </button>
+    </div>
+  </div>
+
+  <!-- Main In-Game Shell -->
+  <main class="game-shell flex flex-col items-center justify-center space-y-2">
+    <!-- Top HUD Navigation -->
+    <header class="w-full flex items-center justify-between px-1 py-1.5 bg-white/80 backdrop-blur rounded-xl border border-slate-200 shadow-sm text-xs font-mono">
+      <div class="flex items-center gap-1.5">
+        <button id="btn-menu" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 font-bold active:scale-95 transition-all">
+          ☰
+        </button>
+        <button id="btn-mode" class="px-2 py-1 bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 rounded-lg font-bold text-[11px] active:scale-95 transition-all">
+          🤖 CPU
+        </button>
+      </div>
+
+      <div class="flex items-center gap-1.5">
+        <span id="turn-pip" class="w-2.5 h-2.5 rounded-full bg-sky-500 shadow-sm animate-pulse"></span>
+        <span id="turn-label" class="font-bold text-sky-700 text-[11px]">SECOPS.SVC (P1)</span>
+      </div>
+
+      <div class="flex items-center gap-1">
+        <button id="btn-undo" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold active:scale-95 transition-all" title="Undo Move">
+          ↩
+        </button>
+        <button id="btn-reset" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold active:scale-95 transition-all" title="Reset Grid">
+          ↺
+        </button>
+        <button id="btn-sound" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold active:scale-95 transition-all" title="Toggle Audio">
+          🔊
+        </button>
+      </div>
+    </header>
+
+    <!-- 6x6 Cluster Node Grid -->
+    <section id="board" class="cluster-grid"></section>
+
+    <!-- Compact Telemetry Syslog -->
+    <footer id="terminal-feed" class="w-full h-7 px-2.5 py-1 bg-slate-900 text-slate-300 font-mono text-[9px] rounded-lg overflow-hidden flex items-center whitespace-nowrap shadow-inner border border-slate-800">
+      [BOOT] Topology 6x6 healthy. Nodes synchronized.
+    </footer>
+  </main>
+
+  <!-- Incident Resolution Modal (Win/Loss/Draw) -->
+  <div id="incident-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 backdrop-blur-sm p-4">
+    <div class="bg-white text-slate-800 rounded-2xl max-w-xs w-full p-5 shadow-2xl border border-slate-200 flex flex-col items-center text-center space-y-3">
+      <div id="modal-glyph" class="w-14 h-14 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-center p-2 shadow-inner"></div>
+      <h3 id="modal-heading" class="text-base font-black text-slate-800 font-mono tracking-wide uppercase"></h3>
+      <p id="modal-details" class="text-xs text-slate-600"></p>
+      <button id="btn-modal-reboot" class="w-full py-2.5 bg-sky-600 hover:bg-sky-500 active:scale-95 text-white font-mono text-xs font-bold rounded-xl shadow-md transition-all">
+        REBOOT TOPOLOGY
+      </button>
+    </div>
+  </div>
+
+  <script>
+    class NocAudio {
+      constructor() {
+        this.ctx = null;
+        this.muted = false;
+      }
+      init() {
+        if (!this.ctx) {
+          const AudioContext = window.AudioContext || window.webkitAudioContext;
+          if (AudioContext) this.ctx = new AudioContext();
+        }
+        if (this.ctx && this.ctx.state === 'suspended') {
+          this.ctx.resume();
+        }
+      }
+      chirpMove() {
+        if (!this.ctx || this.muted) return;
+        const now = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(900, now);
+        osc.frequency.exponentialRampToValueAtTime(350, now + 0.05);
+        gain.gain.setValueAtTime(0.12, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.05);
+      }
+      chirpQuarantine() {
+        if (!this.ctx || this.muted) return;
+        const now = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(650, now);
+        osc.frequency.exponentialRampToValueAtTime(140, now + 0.1);
+        gain.gain.setValueAtTime(0.16, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.1);
+      }
+      alarmIntrusion() {
+        if (!this.ctx || this.muted) return;
+        const now = this.ctx.currentTime;
+        [880, 1174.66, 880].forEach((freq, i) => {
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = 'square';
+          osc.frequency.setValueAtTime(freq, now + i * 0.07);
+          gain.gain.setValueAtTime(0.12, now + i * 0.07);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + i * 0.07 + 0.08);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start(now + i * 0.07);
+          osc.stop(now + i * 0.07 + 0.09);
+        });
+      }
+      fanfareRecovery(success = true) {
+        if (!this.ctx || this.muted) return;
+        const freqs = success ? [523.25, 659.25, 783.99, 1046.50] : [440, 392, 349.23, 261.63];
+        freqs.forEach((f, idx) => {
+          const now = this.ctx.currentTime + idx * 0.09;
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = success ? 'sine' : 'triangle';
+          osc.frequency.setValueAtTime(f, now);
+          gain.gain.setValueAtTime(0.15, now);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start(now);
+          osc.stop(now + 0.22);
+        });
+      }
+    }
+
+    const sound = new NocAudio();
+    const BOARD_SIZE = 6;
+
+    /* Enterprise NOC Service Schemas with Faction-Specific Identifiers */
+    const SERVICE_SPECS = {
+      K: {
+        name: 'core-db-primary.service',
+        alias: 'Root Vault DB',
+        p1Tag: 'VAULT-DB',
+        p2Tag: 'C2-MAINFRAME',
+        port: 'TCP/5432',
+        pid: 1001,
+        mem: '1024 MB',
+        p1Color: '#0284c7',
+        p2Color: '#e11d48',
+        desc: 'Master database cluster holding root cryptographic keys.'
+      },
+      Q: {
+        name: 'admin-daemon-cluster.svc',
+        alias: 'Root Orchestrator',
+        p1Tag: 'K8S-ORCH',
+        p2Tag: 'BOTNET-QUEEN',
+        port: 'QUIC/8443',
+        pid: 1044,
+        mem: '512 MB',
+        p1Color: '#0284c7',
+        p2Color: '#e11d48',
+        desc: 'Unrestricted cluster daemon with full routing across rows, columns & diagonals.'
+      },
+      R: {
+        name: 'waf-perimeter-gateway.svc',
+        alias: 'Firewall Gateway',
+        p1Tag: 'WAF-GATE',
+        p2Tag: 'JAM-WALL',
+        port: 'TCP/443',
+        pid: 2011,
+        mem: '256 MB',
+        p1Color: '#0284c7',
+        p2Color: '#e11d48',
+        desc: 'Rigid security barrier sweeping horizontal & vertical network buses.'
+      },
+      B: {
+        name: 'vector-worker-daemon.svc',
+        alias: 'Logic Vector Bot',
+        p1Tag: 'VECT-SENTRY',
+        p2Tag: 'LOGIC-MINE',
+        port: 'UDP/9092',
+        pid: 3042,
+        mem: '192 MB',
+        p1Color: '#0284c7',
+        p2Color: '#e11d48',
+        desc: 'Asynchronous event worker operating along diagonal vectors.'
+      },
+      N: {
+        name: 'infiltrator-sidechannel.svc',
+        alias: '0-Day Infiltrator',
+        p1Tag: 'SENTINEL',
+        p2Tag: '0DAY-INJ',
+        port: 'TCP/2202',
+        pid: 4099,
+        mem: '128 MB',
+        p1Color: '#0284c7',
+        p2Color: '#e11d48',
+        desc: 'Kernel exploit pod leaping over hardware boundaries via rogue ports.'
+      },
+      P: {
+        name: 'telemetry-probe-agent.pod',
+        alias: 'Probe Ping Agent',
+        p1Tag: 'PING-PKT',
+        p2Tag: 'BOT-SPIDER',
+        port: 'ICMP/ECHO',
+        pid: 5120,
+        mem: '32 MB',
+        p1Color: '#0284c7',
+        p2Color: '#e11d48',
+        desc: 'Ingress node telemetry packet. Compiles to Root Orchestrator on opposing gateway!'
+      }
+    };
+
+    const NOC_SERVICE_SVGS = {
+      P1: {
+        K: (color = '#0284c7') => `
+          <svg viewBox="0 0 48 48" fill="none" stroke="${color}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M19 14V10a5 5 0 0 1 10 0v4" stroke-width="2.6" />
+            <rect x="15" y="14" width="18" height="13" rx="3" fill="${color}" fill-opacity="0.2" />
+            <circle cx="24" cy="20.5" r="2" fill="${color}" />
+            <line x1="24" y1="22.5" x2="24" y2="25" stroke-width="2" />
+            <ellipse cx="24" cy="32" rx="14" ry="4" fill="${color}" fill-opacity="0.15" />
+            <path d="M10 32v6c0 2.2 6.3 4 14 4s14-1.8 14-4v-6" fill="${color}" fill-opacity="0.2" />
+            <line x1="8" y1="44" x2="40" y2="44" stroke-width="3" />
+          </svg>
+        `,
+        Q: (color = '#0284c7') => `
+          <svg viewBox="0 0 48 48" fill="none" stroke="${color}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="24" cy="24" r="7" fill="${color}" fill-opacity="0.2" />
+            <circle cx="24" cy="24" r="2.5" fill="${color}" />
+            <path d="M12 16l4 8-4 8m24-16l-4 8 4 8" stroke-width="2.2" />
+            <path d="M16 12l8 4 8-4m-16 24l8-4 8 4" stroke-width="2.2" />
+            <circle cx="24" cy="8" r="2" fill="${color}" />
+            <circle cx="8" cy="24" r="2" fill="${color}" />
+            <circle cx="40" cy="24" r="2" fill="${color}" />
+            <circle cx="24" cy="40" r="2" fill="${color}" />
+            <path d="M14 8l10-4 10 4" stroke-width="2.5" />
+          </svg>
+        `,
+        R: (color = '#0284c7') => `
+          <svg viewBox="0 0 48 48" fill="none" stroke="${color}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M11 11h6v4h5v-4h4v4h5v-4h6v11l-3 4v12H14V26l-3-4V11z" fill="${color}" fill-opacity="0.18" />
+            <path d="M24 19v15M17 26.5h14" stroke-width="2.2" />
+            <rect x="18" y="21" width="12" height="11" rx="2" fill="${color}" fill-opacity="0.15" />
+            <line x1="8" y1="42" x2="40" y2="42" stroke-width="3.5" />
+          </svg>
+        `,
+        B: (color = '#0284c7') => `
+          <svg viewBox="0 0 48 48" fill="none" stroke="${color}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="24" cy="24" r="13" fill="${color}" fill-opacity="0.12" />
+            <circle cx="24" cy="24" r="6" fill="${color}" fill-opacity="0.25" />
+            <circle cx="24" cy="24" r="2" fill="${color}" />
+            <line x1="24" y1="5" x2="24" y2="43" stroke-dasharray="2 2" stroke-width="2" />
+            <line x1="5" y1="24" x2="43" y2="24" stroke-dasharray="2 2" stroke-width="2" />
+            <line x1="10" y1="10" x2="15" y2="15" stroke-width="2.5" />
+            <line x1="38" y1="38" x2="33" y2="33" stroke-width="2.5" />
+            <line x1="38" y1="10" x2="33" y2="15" stroke-width="2.5" />
+            <line x1="10" y1="38" x2="15" y2="33" stroke-width="2.5" />
+          </svg>
+        `,
+        N: (color = '#0284c7') => `
+          <svg viewBox="0 0 48 48" fill="none" stroke="${color}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M15 39h18l-1-7c3-2 5-6 5-11 0-7-4-12-11-12-4 0-7 2-9 5l-5 4 3 6-4 5 4 3-2 7z" fill="${color}" fill-opacity="0.18" />
+            <path d="M19 18h11v5H19z" fill="${color}" fill-opacity="0.3" />
+            <line x1="14" y1="8" x2="21" y2="14" stroke-width="2.5" />
+            <circle cx="13" cy="7" r="2" fill="${color}" />
+            <line x1="12" y1="41" x2="36" y2="41" stroke-width="3.5" />
+          </svg>
+        `,
+        P: (color = '#0284c7') => `
+          <svg viewBox="0 0 48 48" fill="none" stroke="${color}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M15 15a13 13 0 0 1 18 0" stroke-width="2.5" />
+            <path d="M19 19a7 7 0 0 1 10 0" stroke-width="2.5" />
+            <circle cx="24" cy="25" r="3.5" fill="${color}" />
+            <line x1="24" y1="28.5" x2="24" y2="39" stroke-width="3" />
+            <path d="M18 39h12" stroke-width="3.5" />
+            <circle cx="24" cy="11" r="1.5" fill="${color}" />
+          </svg>
+        `
+      },
+      P2: {
+        K: (color = '#e11d48') => `
+          <svg viewBox="0 0 48 48" fill="none" stroke="${color}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10 14l6-6v28l-6-4V14z" fill="${color}" fill-opacity="0.18" />
+            <path d="M38 14l-6-6v28l6-4V14z" fill="${color}" fill-opacity="0.18" />
+            <rect x="16" y="11" width="16" height="23" rx="2" fill="${color}" fill-opacity="0.22" />
+            <path d="M20 18l4 3 4-3v6l-4 3-4-3v-6z" fill="${color}" />
+            <line x1="24" y1="4" x2="24" y2="10" stroke-width="3" />
+            <polygon points="24,2 21,7 27,7" fill="${color}" />
+            <line x1="12" y1="40" x2="36" y2="40" stroke-width="3.5" />
+            <circle cx="21" cy="30" r="1.5" fill="${color}" />
+            <circle cx="27" cy="30" r="1.5" fill="${color}" />
+          </svg>
+        `,
+        Q: (color = '#e11d48') => `
+          <svg viewBox="0 0 48 48" fill="none" stroke="${color}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M7 15l7 8 10-15 10 15 7-8v20H7V15z" fill="${color}" fill-opacity="0.22" />
+            <polygon points="7,15 9,11 11,15" fill="${color}" />
+            <polygon points="41,15 39,11 37,15" fill="${color}" />
+            <polygon points="24,8 21,3 27,3" fill="${color}" />
+            <path d="M18 26c3 3 9 3 12 0-3-3-9-3-12 0z" fill="${color}" />
+            <line x1="11" y1="38" x2="37" y2="38" stroke-width="3.5" />
+            <line x1="16" y1="42" x2="32" y2="42" stroke-width="2.5" />
+          </svg>
+        `,
+        R: (color = '#e11d48') => `
+          <svg viewBox="0 0 48 48" fill="none" stroke="${color}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 11l4 3h16l4-3v7l-3 3 3 5-3 3 3 5-5 5H17l-5-5 3-5-3-3 3-5-3-3v-7z" fill="${color}" fill-opacity="0.2" />
+            <path d="M21 21l6 6m0-6l-6 6" stroke-width="2.6" />
+            <line x1="9" y1="41" x2="39" y2="41" stroke-width="3.5" />
+            <polygon points="24,14 26,18 22,18" fill="${color}" />
+          </svg>
+        `,
+        B: (color = '#e11d48') => `
+          <svg viewBox="0 0 48 48" fill="none" stroke="${color}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="24,12 36,24 24,36 12,24" fill="${color}" fill-opacity="0.22" />
+            <circle cx="24" cy="24" r="4.5" fill="${color}" />
+            <line x1="24" y1="6" x2="24" y2="12" stroke-width="3" />
+            <line x1="24" y1="36" x2="24" y2="42" stroke-width="3" />
+            <line x1="6" y1="24" x2="12" y2="24" stroke-width="3" />
+            <line x1="36" y1="24" x2="42" y2="24" stroke-width="3" />
+            <line x1="11" y1="11" x2="16" y2="16" stroke-width="2.5" />
+            <line x1="37" y1="37" x2="32" y2="32" stroke-width="2.5" />
+            <line x1="37" y1="11" x2="32" y2="16" stroke-width="2.5" />
+            <line x1="11" y1="37" x2="16" y2="32" stroke-width="2.5" />
+          </svg>
+        `,
+        N: (color = '#e11d48') => `
+          <svg viewBox="0 0 48 48" fill="none" stroke="${color}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 38h24l-2-8c4-3 5-7 5-13 0-6-3-11-9-12l2-4-5 2-4-4-4 4-5-2 2 4c-6 1-9 6-9 12 0 6 1 10 5 13l-2 8z" fill="${color}" fill-opacity="0.2" />
+            <polygon points="19,19 23,22 18,24" fill="${color}" />
+            <polygon points="29,19 25,22 30,24" fill="${color}" />
+            <line x1="24" y1="26" x2="24" y2="33" stroke-width="2.4" />
+            <line x1="11" y1="41" x2="37" y2="41" stroke-width="3.5" />
+          </svg>
+        `,
+        P: (color = '#e11d48') => `
+          <svg viewBox="0 0 48 48" fill="none" stroke="${color}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="24,14 31,23 24,32 17,23" fill="${color}" fill-opacity="0.25" />
+            <circle cx="24" cy="23" r="3" fill="${color}" />
+            <path d="M17 19l-7-3m7 8l-8 2m23-10l7-3m-7 8l8 2" stroke-width="2.2" />
+            <line x1="24" y1="32" x2="24" y2="41" stroke-width="2.8" />
+            <polygon points="24,43 21,38 27,38" fill="${color}" />
+            <polygon points="24,8 22,12 26,12" fill="${color}" />
+          </svg>
+        `
+      }
+    };
+
+    function renderServiceSvg(type, team = 'P1', customColor = null) {
+      const teamSvgs = NOC_SERVICE_SVGS[team] || NOC_SERVICE_SVGS.P1;
+      const spec = SERVICE_SPECS[type] || SERVICE_SPECS.P;
+      const defaultColor = team === 'P1' ? spec.p1Color : spec.p2Color;
+      const color = customColor || defaultColor;
+      const renderFn = teamSvgs[type] || teamSvgs.P;
+      return renderFn(color);
+    }
+  </script>
+
+  <script>
+    let board = [];
+    let currentTurn = 'P1';
+    let gameMode = 'cpu';
+    let selectedPos = null;
+    let validMoves = [];
+    let moveHistory = [];
+    let p1Quarantine = [];
+    let p2Quarantine = [];
+    let lastMove = null;
+    let isGameOver = false;
+    let cycleCounter = 1;
+
+    function initClusterBoard() {
+      board = Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(null));
+
+      // Row 0: Rogue Syndicate Infiltrator Daemons (P2 / Opponent)
+      const rackP2 = ['R', 'N', 'B', 'Q', 'K', 'R'];
+      for (let c = 0; c < BOARD_SIZE; c++) {
+        board[0][c] = { type: rackP2[c], team: 'P2', hasMoved: false };
+      }
+
+      // Row 1: P2 Telemetry Probes
+      for (let c = 0; c < BOARD_SIZE; c++) {
+        board[1][c] = { type: 'P', team: 'P2', hasMoved: false };
+      }
+
+      // Row 4: P1 Telemetry Probes
+      for (let c = 0; c < BOARD_SIZE; c++) {
+        board[4][c] = { type: 'P', team: 'P1', hasMoved: false };
+      }
+
+      // Row 5: SecOps Defense Infrastructure (P1)
+      const rackP1 = ['R', 'N', 'B', 'Q', 'K', 'R'];
+      for (let c = 0; c < BOARD_SIZE; c++) {
+        board[5][c] = { type: rackP1[c], team: 'P1', hasMoved: false };
+      }
+
+      currentTurn = 'P1';
+      selectedPos = null;
+      validMoves = [];
+      moveHistory = [];
+      p1Quarantine = [];
+      p2Quarantine = [];
+      lastMove = null;
+      isGameOver = false;
+      cycleCounter = 1;
+
+      const incidentModal = document.getElementById('incident-modal');
+      if (incidentModal) incidentModal.classList.add('hidden');
+      
+      appendSyslog(`[BOOT] Cluster nodes synchronized. Topology 6x6 healthy.`);
+      updateDashboardTelemetry();
+      renderClusterGrid();
+    }
+
+    function getRawMoves(r, c, targetBoard = board) {
+      const piece = targetBoard[r][c];
+      if (!piece) return [];
+      const team = piece.team;
+      const moves = [];
+
+      const inBounds = (nr, nc) => nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE;
+
+      const slide = (deltas) => {
+        for (const [dr, dc] of deltas) {
+          let nr = r + dr;
+          let nc = c + dc;
+          while (inBounds(nr, nc)) {
+            const occupant = targetBoard[nr][nc];
+            if (!occupant) {
+              moves.push({ r: nr, c: nc, isCapture: false });
+            } else {
+              if (occupant.team !== team) {
+                moves.push({ r: nr, c: nc, isCapture: true });
+              }
+              break;
+            }
+            nr += dr;
+            nc += dc;
+          }
+        }
+      };
+
+      switch (piece.type) {
+        case 'P': {
+          const dir = team === 'P1' ? -1 : 1;
+          const startRow = team === 'P1' ? 4 : 1;
+
+          const f1r = r + dir;
+          if (inBounds(f1r, c) && !targetBoard[f1r][c]) {
+            moves.push({ r: f1r, c: c, isCapture: false });
+
+            const f2r = r + dir * 2;
+            if (r === startRow && inBounds(f2r, c) && !targetBoard[f2r][c]) {
+              moves.push({ r: f2r, c: c, isCapture: false });
+            }
+          }
+
+          for (const dc of [-1, 1]) {
+            const cr = r + dir;
+            const cc = c + dc;
+            if (inBounds(cr, cc)) {
+              const occupant = targetBoard[cr][cc];
+              if (occupant && occupant.team !== team) {
+                moves.push({ r: cr, c: cc, isCapture: true });
+              }
+            }
+          }
+          break;
+        }
+
+        case 'N': {
+          const deltas = [
+            [-2, -1], [-2, 1], [-1, -2], [-1, 2],
+            [1, -2], [1, 2], [2, -1], [2, 1]
+          ];
+          for (const [dr, dc] of deltas) {
+            const nr = r + dr;
+            const nc = c + dc;
+            if (inBounds(nr, nc)) {
+              const occupant = targetBoard[nr][nc];
+              if (!occupant) moves.push({ r: nr, c: nc, isCapture: false });
+              else if (occupant.team !== team) moves.push({ r: nr, c: nc, isCapture: true });
+            }
+          }
+          break;
+        }
+
+        case 'B': {
+          slide([[-1, -1], [-1, 1], [1, -1], [1, 1]]);
+          break;
+        }
+
+        case 'R': {
+          slide([[-1, 0], [1, 0], [0, -1], [0, 1]]);
+          break;
+        }
+
+        case 'Q': {
+          slide([
+            [-1, -1], [-1, 1], [1, -1], [1, 1],
+            [-1, 0], [1, 0], [0, -1], [0, 1]
+          ]);
+          break;
+        }
+
+        case 'K': {
+          const coreDeltas = [
+            [-1, -1], [-1, 0], [-1, 1],
+            [0, -1],           [0, 1],
+            [1, -1],  [1, 0],  [1, 1]
+          ];
+          for (const [dr, dc] of coreDeltas) {
+            const nr = r + dr;
+            const nc = c + dc;
+            if (inBounds(nr, nc)) {
+              const occupant = targetBoard[nr][nc];
+              if (!occupant) moves.push({ r: nr, c: nc, isCapture: false });
+              else if (occupant.team !== team) moves.push({ r: nr, c: nc, isCapture: true });
+            }
+          }
+          break;
+        }
+      }
+
+      return moves;
+    }
+
+    function locateCoreDB(team, targetBoard = board) {
+      for (let r = 0; r < BOARD_SIZE; r++) {
+        for (let c = 0; c < BOARD_SIZE; c++) {
+          const p = targetBoard[r][c];
+          if (p && p.type === 'K' && p.team === team) {
+            return { r, c };
+          }
+        }
+      }
+      return null;
+    }
+
+    function isCoreDBInCheck(team, targetBoard = board) {
+      const corePos = locateCoreDB(team, targetBoard);
+      if (!corePos) return false;
+
+      const opposingTeam = team === 'P1' ? 'P2' : 'P1';
+      for (let r = 0; r < BOARD_SIZE; r++) {
+        for (let c = 0; c < BOARD_SIZE; c++) {
+          const p = targetBoard[r][c];
+          if (p && p.team === opposingTeam) {
+            const rawMoves = getRawMoves(r, c, targetBoard);
+            if (rawMoves.some(m => m.r === corePos.r && m.c === corePos.c)) {
+              return true;
+            }
+          }
+        }
+      }
+      return false;
+    }
+
+    function getLegalMoves(r, c, targetBoard = board) {
+      const piece = targetBoard[r][c];
+      if (!piece) return [];
+      const rawMoves = getRawMoves(r, c, targetBoard);
+      const legalMoves = [];
+
+      for (const m of rawMoves) {
+        const testBoard = targetBoard.map(row => row.slice());
+        testBoard[m.r][m.c] = { ...piece, hasMoved: true };
+        testBoard[r][c] = null;
+
+        if (!isCoreDBInCheck(piece.team, testBoard)) {
+          legalMoves.push(m);
+        }
+      }
+
+      return legalMoves;
+    }
+
+    function renderClusterGrid() {
+      const container = document.getElementById('board');
+      if (!container) return;
+      container.innerHTML = '';
+
+      const p1Breached = isCoreDBInCheck('P1');
+      const p2Breached = isCoreDBInCheck('P2');
+
+      for (let r = 0; r < BOARD_SIZE; r++) {
+        for (let c = 0; c < BOARD_SIZE; c++) {
+          const cell = document.createElement('div');
+          const isLight = (r + c) % 2 === 0;
+          cell.className = `node-cell ${isLight ? 'node-slot-light' : 'node-slot-dark'}`;
+          cell.dataset.r = r;
+          cell.dataset.c = c;
+
+          if (c === 0) {
+            const rackLbl = document.createElement('span');
+            rackLbl.className = 'rack-tag top-1 left-1.5';
+            rackLbl.innerText = `R${6 - r}`;
+            cell.appendChild(rackLbl);
+          }
+          if (r === BOARD_SIZE - 1) {
+            const nodeLbl = document.createElement('span');
+            nodeLbl.className = 'rack-tag bottom-0.5 right-1.5';
+            nodeLbl.innerText = `C${c + 1}`;
+            cell.appendChild(nodeLbl);
+          }
+
+          if (lastMove && ((lastMove.fromR === r && lastMove.fromC === c) || (lastMove.toR === r && lastMove.toC === c))) {
+            cell.classList.add('node-last-route');
+          }
+
+          if (selectedPos && selectedPos.r === r && selectedPos.c === c) {
+            cell.classList.add('node-selected');
+          }
+
+          const piece = board[r][c];
+
+          if (piece && piece.type === 'K') {
+            if ((piece.team === 'P1' && p1Breached) || (piece.team === 'P2' && p2Breached)) {
+              cell.classList.add('node-compromised');
+            }
+          }
+
+          if (piece) {
+            const chipClass = piece.team === 'P1' ? 'chip-p1' : 'chip-p2';
+            const spec = SERVICE_SPECS[piece.type];
+            const tag = piece.team === 'P1' ? spec.p1Tag : spec.p2Tag;
+
+            cell.innerHTML += `
+              <div class="service-chip ${chipClass}">
+                <span class="service-icon">${renderServiceSvg(piece.type, piece.team)}</span>
+                <span class="service-label">${tag}</span>
+              </div>
+            `;
+          }
+
+          if (validMoves.some(m => m.r === r && m.c === c && !m.isCapture)) {
+            const dot = document.createElement('div');
+            dot.className = 'route-target-dot';
+            cell.appendChild(dot);
+          } else if (validMoves.some(m => m.r === r && m.c === c && m.isCapture)) {
+            const box = document.createElement('div');
+            box.className = 'quarantine-target-box';
+            cell.appendChild(box);
+          }
+
+          cell.addEventListener('click', () => handleCellClick(r, c));
+          container.appendChild(cell);
+        }
+      }
+    }
+
+    function handleCellClick(r, c) {
+      if (isGameOver) return;
+      if (gameMode === 'cpu' && currentTurn === 'P2') return;
+
+      sound.init();
+      const clickedPiece = board[r][c];
+
+      const matchedMove = validMoves.find(m => m.r === r && m.c === c);
+      if (selectedPos && matchedMove) {
+        executeTransaction(selectedPos.r, selectedPos.c, r, c);
+        return;
+      }
+
+      if (clickedPiece && clickedPiece.team === currentTurn) {
+        selectedPos = { r, c };
+        validMoves = getLegalMoves(r, c);
+        renderClusterGrid();
+        return;
+      }
+
+      selectedPos = null;
+      validMoves = [];
+      renderClusterGrid();
+    }
+
+    function executeTransaction(fromR, fromC, toR, toC, isCpu = false) {
+      const piece = board[fromR][fromC];
+      const targetPiece = board[toR][toC];
+      const spec = SERVICE_SPECS[piece.type];
+      const tag = piece.team === 'P1' ? spec.p1Tag : spec.p2Tag;
+
+      moveHistory.push({
+        boardState: board.map(row => row.map(cell => (cell ? { ...cell } : null))),
+        p1Quarantine: [...p1Quarantine],
+        p2Quarantine: [...p2Quarantine],
+        lastMove,
+        turn: currentTurn,
+        cycle: cycleCounter
+      });
+
+      if (targetPiece) {
+        sound.chirpQuarantine();
+        const victimSpec = SERVICE_SPECS[targetPiece.type];
+        const victimTag = targetPiece.team === 'P1' ? victimSpec.p1Tag : victimSpec.p2Tag;
+        const victimColor = targetPiece.team === 'P1' ? '#0284c7' : '#e11d48';
+        spawnTelemetryToast(toR, toC, `KILL -9 ${victimTag}`, victimColor);
+        appendSyslog(`[ALERT] ${tag} dropped ${victimSpec.name} at R${6 - toR}:C${toC + 1}`);
+
+        if (targetPiece.team === 'P1') {
+          p1Quarantine.push(targetPiece.type);
+        } else {
+          p2Quarantine.push(targetPiece.type);
+        }
+      } else {
+        sound.chirpMove();
+        appendSyslog(`[ROUTE] ${tag} dispatched: R${6 - fromR}:C${fromC + 1} -> R${6 - toR}:C${toC + 1}`);
+      }
+
+      board[toR][toC] = { ...piece, hasMoved: true };
+      board[fromR][fromC] = null;
+
+      if (piece.type === 'P') {
+        if ((piece.team === 'P1' && toR === 0) || (piece.team === 'P2' && toR === BOARD_SIZE - 1)) {
+          board[toR][toC].type = 'Q';
+          const teamColor = piece.team === 'P1' ? '#0284c7' : '#e11d48';
+          spawnTelemetryToast(toR, toC, `COMPILED: ROOT DAEMON`, teamColor);
+          appendSyslog(`[COMPILE] Probe agent upgraded to ROOT ORCHESTRATOR.`);
+        }
+      }
+
+      lastMove = { fromR, fromC, toR, toC };
+      selectedPos = null;
+      validMoves = [];
+
+      currentTurn = currentTurn === 'P1' ? 'P2' : 'P1';
+      if (currentTurn === 'P1') cycleCounter++;
+
+      const enemyHasMoves = hasAnyLegalMoves(currentTurn);
+      const enemyInCheck = isCoreDBInCheck(currentTurn);
+
+      if (!enemyHasMoves) {
+        if (enemyInCheck) {
+          const winner = currentTurn === 'P1' ? 'P2' : 'P1';
+          triggerIncidentResolution(winner, 'checkmate');
+          return;
+        } else {
+          triggerIncidentResolution('STALEMATE', 'stalemate');
+          return;
+        }
+      }
+
+      if (enemyInCheck) {
+        sound.alarmIntrusion();
+        const corePos = locateCoreDB(currentTurn);
+        if (corePos) spawnTelemetryToast(corePos.r, corePos.c, 'CORE INTRUSION!', '#dc2626');
+        appendSyslog(`[SEV-1] Primary Database in check for ${currentTurn}!`);
+      }
+
+      updateDashboardTelemetry();
+      renderClusterGrid();
+
+      if (gameMode === 'cpu' && currentTurn === 'P2' && !isGameOver) {
+        setTimeout(makeCPUTurn, 400);
+      }
+    }
+
+    function hasAnyLegalMoves(team) {
+      for (let r = 0; r < BOARD_SIZE; r++) {
+        for (let c = 0; c < BOARD_SIZE; c++) {
+          const piece = board[r][c];
+          if (piece && piece.team === team) {
+            const moves = getLegalMoves(r, c);
+            if (moves.length > 0) return true;
+          }
+        }
+      }
+      return false;
+    }
+
+    function makeCPUTurn() {
+      if (isGameOver || currentTurn !== 'P2') return;
+
+      const candidates = [];
+
+      for (let r = 0; r < BOARD_SIZE; r++) {
+        for (let c = 0; c < BOARD_SIZE; c++) {
+          const p = board[r][c];
+          if (p && p.team === 'P2') {
+            const moves = getLegalMoves(r, c);
+            for (const m of moves) {
+              candidates.push({ fromR: r, fromC: c, toR: m.r, toC: m.c, piece: p });
+            }
+          }
+        }
+      }
+
+      if (candidates.length === 0) return;
+
+      const PIECE_WEIGHTS = { K: 10000, Q: 900, R: 500, B: 320, N: 300, P: 100 };
+
+      candidates.forEach(move => {
+        let score = 0;
+        const target = board[move.toR][move.toC];
+
+        if (target) {
+          score += PIECE_WEIGHTS[target.type] * 8 - PIECE_WEIGHTS[move.piece.type];
+        }
+
+        const centerDistance = Math.abs(2.5 - move.toR) + Math.abs(2.5 - move.toC);
+        score += (6 - centerDistance) * 3;
+
+        if (move.piece.type === 'P') {
+          score += move.toR * 4;
+          if (move.toR === BOARD_SIZE - 1) score += 750;
+        }
+
+        if (move.piece.type === 'K' && cycleCounter < 10) {
+          score -= 40;
+        }
+
+        score += Math.random() * 5;
+        move.score = score;
+      });
+
+      candidates.sort((a, b) => b.score - a.score);
+      const bestMove = candidates[0];
+
+      executeTransaction(bestMove.fromR, bestMove.fromC, bestMove.toR, bestMove.toC, true);
+    }
+
+    function rollbackTransaction() {
+      if (moveHistory.length === 0 || isGameOver) return;
+
+      const steps = gameMode === 'cpu' && moveHistory.length >= 2 ? 2 : 1;
+
+      for (let i = 0; i < steps; i++) {
+        const prev = moveHistory.pop();
+        if (prev) {
+          board = prev.boardState;
+          p1Quarantine = prev.p1Quarantine;
+          p2Quarantine = prev.p2Quarantine;
+          lastMove = prev.lastMove;
+          currentTurn = prev.turn;
+          cycleCounter = prev.cycle;
+        }
+      }
+
+      selectedPos = null;
+      validMoves = [];
+      appendSyslog(`[ROLLBACK] Restored to previous cycle snapshot.`);
+      updateDashboardTelemetry();
+      renderClusterGrid();
+      sound.chirpMove();
+    }
+
+    function spawnTelemetryToast(r, c, msg, color = '#10b981') {
+      const cell = document.querySelector(`[data-r="${r}"][data-c="${c}"]`);
+      if (!cell) return;
+      const toast = document.createElement('div');
+      toast.className = 'floating-log-toast';
+      toast.style.color = color;
+      toast.innerText = msg;
+      cell.appendChild(toast);
+      setTimeout(() => toast.remove(), 800);
+    }
+
+    function appendSyslog(entry) {
+      const feed = document.getElementById('terminal-feed');
+      if (!feed) return;
+      const timeStr = new Date().toTimeString().split(' ')[0];
+      feed.innerText = `[${timeStr}] ${entry}`;
+    }
+
+    function updateDashboardTelemetry() {
+      const turnPip = document.getElementById('turn-pip');
+      const turnLabel = document.getElementById('turn-label');
+
+      if (turnPip && turnLabel) {
+        if (currentTurn === 'P1') {
+          turnPip.className = 'w-2.5 h-2.5 rounded-full bg-sky-500 shadow-sm animate-pulse shrink-0';
+          turnLabel.className = 'font-bold text-sky-700 truncate text-[11px]';
+          turnLabel.innerText = 'SECOPS.SVC (P1)';
+        } else {
+          turnPip.className = 'w-2.5 h-2.5 rounded-full bg-rose-500 shadow-sm animate-pulse shrink-0';
+          turnLabel.className = 'font-bold text-rose-700 truncate text-[11px]';
+          turnLabel.innerText = gameMode === 'cpu' ? 'ROGUE-POD (CPU)' : 'OPERATOR-2 (P2)';
+        }
+      }
+
+      const undoBtn = document.getElementById('btn-undo');
+      if (undoBtn) {
+        undoBtn.disabled = moveHistory.length === 0;
+        undoBtn.style.opacity = moveHistory.length === 0 ? '0.4' : '1';
+      }
+    }
+
+    function triggerIncidentResolution(winner, type) {
+      isGameOver = true;
+      const modal = document.getElementById('incident-modal');
+      const glyph = document.getElementById('modal-glyph');
+      const heading = document.getElementById('modal-heading');
+      const details = document.getElementById('modal-details');
+
+      const isP1Win = winner === 'P1';
+      sound.fanfareRecovery(isP1Win);
+
+      if (winner === 'STALEMATE') {
+        glyph.innerHTML = renderServiceSvg('R', 'P1', '#64748b');
+        heading.innerText = 'DRAW — CLUSTER DEADLOCK';
+        heading.className = 'text-base font-black text-slate-700 font-mono tracking-wide uppercase';
+        details.innerText = 'Draw! Mutual resource exhaustion reached. Zero available routing paths.';
+        appendSyslog(`[INCIDENT] Cluster deadlock detected. Stalemate established.`);
+      } else if (isP1Win) {
+        glyph.innerHTML = renderServiceSvg('K', 'P1', '#0284c7');
+        const prefix = gameMode === 'cpu' ? 'YOU WON — ' : 'PLAYER 1 WON — ';
+        heading.innerText = `${prefix}SECOPS VERIFIED OK`;
+        heading.className = 'text-base font-black text-sky-700 font-mono tracking-wide uppercase';
+        const currentMsg = gameMode === 'cpu' 
+          ? 'SecOps isolated and quarantined all Rogue CPU pods.' 
+          : 'Operator 1 secured the Primary Core Database!';
+        const detailPrefix = gameMode === 'cpu' ? 'You won! ' : 'Player 1 won! ';
+        details.innerText = `${detailPrefix}${currentMsg}`;
+        appendSyslog(`[INCIDENT CLOSED] SecOps Defense successfully purged malicious daemons.`);
+      } else {
+        glyph.innerHTML = renderServiceSvg('K', 'P2', '#e11d48');
+        const prefix = gameMode === 'cpu' ? 'YOU LOST — ' : 'PLAYER 2 WON — ';
+        heading.innerText = `${prefix}ROOT BREACH COMPROMISED`;
+        heading.className = 'text-base font-black text-rose-700 font-mono tracking-wide uppercase';
+        const currentMsg = gameMode === 'cpu' 
+          ? 'Rogue CPU pod extracted the master encryption keys!' 
+          : 'Operator 2 seized control of the Root Database!';
+        const detailPrefix = gameMode === 'cpu' ? 'You lost! ' : 'Player 2 won! ';
+        details.innerText = `${detailPrefix}${currentMsg}`;
+        appendSyslog(`[INCIDENT CRITICAL] Root Database compromised by threat actor.`);
+      }
+
+      if (modal) modal.classList.remove('hidden');
+    }
+
+    function initEventHandlers() {
+      const btnMode = document.getElementById('btn-mode');
+      if (btnMode) {
+        btnMode.addEventListener('click', () => {
+          sound.init();
+          gameMode = gameMode === 'cpu' ? 'pass' : 'cpu';
+          btnMode.innerText = gameMode === 'cpu' ? '🤖 CPU' : '👥 2P';
+          initClusterBoard();
+        });
+      }
+
+      const btnUndo = document.getElementById('btn-undo');
+      if (btnUndo) btnUndo.addEventListener('click', rollbackTransaction);
+
+      const btnReset = document.getElementById('btn-reset');
+      if (btnReset) {
+        btnReset.addEventListener('click', () => {
+          sound.init();
+          initClusterBoard();
+        });
+      }
+
+      const btnModalReboot = document.getElementById('btn-modal-reboot');
+      if (btnModalReboot) {
+        btnModalReboot.addEventListener('click', () => {
+          sound.init();
+          initClusterBoard();
+        });
+      }
+
+      const btnSound = document.getElementById('btn-sound');
+      if (btnSound) {
+        btnSound.addEventListener('click', () => {
+          sound.init();
+          sound.muted = !sound.muted;
+          btnSound.innerText = sound.muted ? '🔇' : '🔊';
+          syncSoundUI();
+        });
+      }
+
+      const btnMenu = document.getElementById('btn-menu');
+      const homeScreen = document.getElementById('home-screen');
+      const splashScreen = document.getElementById('splash-screen');
+      const guideModal = document.getElementById('guide-modal');
+
+      if (btnMenu) {
+        btnMenu.addEventListener('click', () => {
+          sound.init();
+          if (homeScreen) homeScreen.classList.remove('screen-hidden');
+        });
+      }
+
+      const btnStartGame = document.getElementById('btn-start-game');
+      if (btnStartGame) {
+        btnStartGame.addEventListener('click', () => {
+          sound.init();
+          if (homeScreen) homeScreen.classList.add('screen-hidden');
+          initClusterBoard();
+        });
+      }
+
+      const btnGameGuide = document.getElementById('btn-game-guide');
+      if (btnGameGuide) {
+        btnGameGuide.addEventListener('click', () => {
+          sound.init();
+          if (guideModal) guideModal.classList.remove('screen-hidden');
+        });
+      }
+
+      const btnCloseGuide = document.getElementById('btn-close-guide');
+      const btnGuideOk = document.getElementById('btn-guide-ok');
+      const closeGuideFn = () => guideModal && guideModal.classList.add('screen-hidden');
+      if (btnCloseGuide) btnCloseGuide.addEventListener('click', closeGuideFn);
+      if (btnGuideOk) btnGuideOk.addEventListener('click', closeGuideFn);
+
+      const btnHomeSound = document.getElementById('btn-home-sound');
+      if (btnHomeSound) {
+        btnHomeSound.addEventListener('click', () => {
+          sound.init();
+          sound.muted = !sound.muted;
+          syncSoundUI();
+        });
+      }
+
+      const btnSplashSkip = document.getElementById('btn-splash-skip');
+      if (btnSplashSkip) {
+        btnSplashSkip.addEventListener('click', () => {
+          sound.init();
+          if (splashScreen) splashScreen.classList.add('screen-hidden');
+          if (homeScreen) homeScreen.classList.remove('screen-hidden');
+        });
+      }
+    }
+
+    function syncSoundUI() {
+      const btnSound = document.getElementById('btn-sound');
+      const homeSoundIcon = document.getElementById('home-sound-icon');
+      const homeSoundLabel = document.getElementById('home-sound-label');
+
+      if (btnSound) btnSound.innerText = sound.muted ? '🔇' : '🔊';
+      if (homeSoundIcon) homeSoundIcon.innerText = sound.muted ? '🔇' : '🔊';
+      if (homeSoundLabel) homeSoundLabel.innerText = sound.muted ? 'MUTED' : 'ON';
+    }
+
+    function startSplashSequence() {
+      const progressBar = document.getElementById('splash-progress');
+      const statusText = document.getElementById('splash-status');
+      const splashScreen = document.getElementById('splash-screen');
+      const homeScreen = document.getElementById('home-screen');
+
+      const steps = [
+        { pct: '30%', text: 'Mounting virtualized node topology...' },
+        { pct: '65%', text: 'Verifying SecOps encryption certificates...' },
+        { pct: '90%', text: 'Deploying C2 telemetry sentries...' },
+        { pct: '100%', text: 'Kernel ready. Welcome Operator.' }
+      ];
+
+      let idx = 0;
+      const interval = setInterval(() => {
+        if (idx < steps.length) {
+          if (progressBar) progressBar.style.width = steps[idx].pct;
+          if (statusText) statusText.innerText = steps[idx].text;
+          idx++;
+        } else {
+          clearInterval(interval);
+          setTimeout(() => {
+            if (splashScreen && !splashScreen.classList.contains('screen-hidden')) {
+              splashScreen.classList.add('screen-hidden');
+              if (homeScreen) homeScreen.classList.remove('screen-hidden');
+            }
+          }, 400);
+        }
+      }, 300);
+    }
+
+    window.addEventListener('load', () => {
+      initEventHandlers();
+      initClusterBoard();
+      syncSoundUI();
+      startSplashSequence();
+    });
+  </script>
+</body>
+</html>
